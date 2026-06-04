@@ -1,9 +1,9 @@
 /* ============================================
    QUANTUMREPORT — Auth (Login / Register)
-   Con Supabase Auth real
+   Con Supabase Auth real (REST API directa)
    ============================================ */
 
-import { supabase } from './supabase.js';
+const supabase = window.__supabase;
 
 // --- Toggle password visibility ---
 document.querySelectorAll('.auth__toggle-pass').forEach((btn) => {
@@ -60,6 +60,7 @@ if (registerForm) {
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
     const confirm = document.getElementById('confirmar');
+    const nombre = document.getElementById('nombre')?.value || '';
     const btn = registerForm.querySelector('.auth__submit');
     const errorEl = document.getElementById('registerError');
 
@@ -82,7 +83,7 @@ if (registerForm) {
       password: password.value,
       options: {
         data: {
-          nombre_consultorio: document.getElementById('nombre')?.value || '',
+          nombre_consultorio: nombre,
         },
       },
     });

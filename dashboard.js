@@ -1,9 +1,9 @@
 /* ============================================
    QUANTUMREPORT — Dashboard
-   Conectado a Supabase
+   Conectado a Supabase (REST API directa)
    ============================================ */
 
-import { supabase } from './supabase.js';
+const supabase = window.__supabase;
 
 // --- Estado global ---
 let miConsultorio = null;
