@@ -1,6 +1,9 @@
 /* ============================================
    QUANTUMREPORT — Auth (Login / Register)
+   Con Supabase Auth real
    ============================================ */
+
+import { supabase } from './supabase.js';
 
 // --- Toggle password visibility ---
 document.querySelectorAll('.auth__toggle-pass').forEach((btn) => {
@@ -17,33 +20,87 @@ document.querySelectorAll('.auth__toggle-pass').forEach((btn) => {
 // --- Login form ---
 const loginForm = document.getElementById('loginForm');
 if (loginForm) {
-  loginForm.addEventListener('submit', (e) => {
+  loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
     const btn = loginForm.querySelector('.auth__submit');
+    const errorEl = document.getElementById('loginError');
+
     btn.textContent = 'Ingresando…';
     btn.disabled = true;
-    setTimeout(() => {
-      window.location.href = '/dashboard.html';
-    }, 1200);
+    if (errorEl) errorEl.style.display = 'none';
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      btn.textContent = 'Ingresar';
+      btn.disabled = false;
+      if (errorEl) {
+        errorEl.textContent = error.message === 'Invalid login credentials'
+          ? 'Usuario o contraseña incorrectos.'
+          : error.message;
+        errorEl.style.display = 'block';
+      } else {
+        alert(error.message);
+      }
+      return;
+    }
+
+    // Redirigir según el rol (por ahora todos a dashboard)
+    window.location.href = '/dashboard.html';
   });
 }
 
 // --- Register form ---
 const registerForm = document.getElementById('registerForm');
 if (registerForm) {
-  registerForm.addEventListener('submit', (e) => {
+  registerForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const pass = document.getElementById('password');
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
     const confirm = document.getElementById('confirmar');
+    const btn = registerForm.querySelector('.auth__submit');
+    const errorEl = document.getElementById('registerError');
 
-    if (pass.value !== confirm.value) {
-      alert('Las contraseñas no coinciden.');
+    if (password.value !== confirm.value) {
+      if (errorEl) {
+        errorEl.textContent = 'Las contraseñas no coinciden.';
+        errorEl.style.display = 'block';
+      } else {
+        alert('Las contraseñas no coinciden.');
+      }
       return;
     }
 
-    const btn = registerForm.querySelector('.auth__submit');
     btn.textContent = 'Creando cuenta…';
     btn.disabled = true;
+    if (errorEl) errorEl.style.display = 'none';
+
+    const { data, error } = await supabase.auth.signUp({
+      email: email,
+      password: password.value,
+      options: {
+        data: {
+          nombre_consultorio: document.getElementById('nombre')?.value || '',
+        },
+      },
+    });
+
+    if (error) {
+      btn.textContent = 'Crear cuenta';
+      btn.disabled = false;
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.style.display = 'block';
+      } else {
+        alert(error.message);
+      }
+      return;
+    }
+
+    // Registro exitoso
+    btn.textContent = '✅ Cuenta creada';
     setTimeout(() => {
       window.location.href = '/dashboard.html';
     }, 1500);

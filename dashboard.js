@@ -1,6 +1,55 @@
 /* ============================================
    QUANTUMREPORT — Dashboard
+   Conectado a Supabase
    ============================================ */
+
+import { supabase } from './supabase.js';
+
+// --- Estado global ---
+let miConsultorio = null;
+
+// --- Auth check ---
+async function checkAuth() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    window.location.href = '/login.html';
+    return;
+  }
+  await cargarConsultorio();
+}
+
+// --- Cargar datos del consultorio desde Supabase ---
+async function cargarConsultorio() {
+  const { data, error } = await supabase
+    .from('consultorios')
+    .select('*')
+    .limit(1)
+    .single();
+
+  if (error) {
+    console.error('Error cargando consultorio:', error);
+    return;
+  }
+
+  miConsultorio = data;
+
+  // Aplicar datos al perfil
+  if (data.nombre) document.getElementById('profileName').value = data.nombre;
+  if (data.slogan) document.getElementById('profileSlogan').value = data.slogan;
+  if (data.whatsapp) document.getElementById('profileWhatsapp').value = data.whatsapp;
+  if (data.logo_url) {
+    document.getElementById('logoPreview').innerHTML = `<img src="${data.logo_url}" alt="Logo">`;
+  }
+
+  // Mostrar nombre en dashboard
+  document.getElementById('clinicaNombre').textContent = data.nombre || 'Mi Consultorio';
+}
+
+// --- Logout ---
+document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+  await supabase.auth.signOut();
+  window.location.href = '/login.html';
+});
 
 // --- Navegación entre Inicio y Mi Perfil ---
 const navLinks = document.querySelectorAll('.topbar__link');
@@ -36,10 +85,8 @@ const uploadPreview = document.getElementById('uploadPreview');
 const fileName = document.getElementById('fileName');
 const analyzeBtn = document.getElementById('analyzeBtn');
 
-// Click zone
 uploadZone.addEventListener('click', () => fileInput.click());
 
-// Drag & drop
 uploadZone.addEventListener('dragover', (e) => {
   e.preventDefault();
   uploadZone.classList.add('upload-zone--active');
@@ -53,48 +100,73 @@ uploadZone.addEventListener('drop', (e) => {
   if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
 });
 
-// File input change
 fileInput.addEventListener('change', () => {
   if (fileInput.files.length) handleFile(fileInput.files[0]);
 });
 
+let archivoSubido = null;
 function handleFile(file) {
+  archivoSubido = file;
   fileName.textContent = file.name;
   uploadZone.style.display = 'none';
   uploadPreview.style.display = 'flex';
 }
 
-// --- Simular análisis ---
-analyzeBtn.addEventListener('click', () => {
+// --- Analizar (sube archivo a Supabase Storage) ---
+analyzeBtn.addEventListener('click', async () => {
+  if (!archivoSubido) return;
+
   const btn = analyzeBtn;
-  btn.textContent = 'Analizando…';
+  btn.textContent = 'Subiendo y analizando…';
   btn.disabled = true;
 
-  setTimeout(() => {
+  try {
+    // Subir archivo a Supabase Storage
+    const fileExt = archivoSubido.name.split('.').pop();
+    const filePath = `${miConsultorio.id}/${Date.now()}.${fileExt}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('informes')
+      .upload(filePath, archivoSubido);
+
+    if (uploadError) throw uploadError;
+
+    // Guardar metadata en la tabla informes
+    const { error: insertError } = await supabase
+      .from('informes')
+      .insert({
+        consultorio_id: miConsultorio.id,
+        paciente_nombre: document.getElementById('pacienteNombre')?.value || '',
+        paciente_telefono: document.getElementById('pacienteTelefono')?.value || '',
+        archivo_original: archivoSubido.name,
+        archivo_storage_path: filePath,
+      });
+
+    if (insertError) throw insertError;
+
+    // Restaurar estado
     btn.textContent = 'Analizar con IA';
     btn.disabled = false;
+    uploadZone.style.display = '';
+    uploadPreview.style.display = 'none';
+    archivoSubido = null;
 
+    // Mostrar resultado (simulado por ahora)
     document.getElementById('resultEmpty').style.display = 'none';
     document.getElementById('resultContent').style.display = 'block';
 
-    // Aplicar logo y datos del perfil
-    const savedLogo = localStorage.getItem('qr_logo');
-    const savedName = localStorage.getItem('qr_name');
-    const savedSlogan = localStorage.getItem('qr_slogan');
-
-    if (savedLogo) {
-      document.getElementById('resultLogo').src = savedLogo;
-      document.getElementById('resultLogo').style.display = 'block';
-    }
-    if (savedName) document.getElementById('resultClinica').textContent = savedName;
-    if (savedSlogan) document.getElementById('resultSlogan').textContent = savedSlogan;
-  }, 1800);
+  } catch (error) {
+    console.error('Error:', error);
+    btn.textContent = 'Analizar con IA';
+    btn.disabled = false;
+    alert('Error al subir el archivo: ' + error.message);
+  }
 });
 
 // --- WhatsApp ---
 document.getElementById('sendWhatsapp')?.addEventListener('click', () => {
-  const telefono = localStorage.getItem('qr_whatsapp') || '';
-  const nombre = document.getElementById('resultClinica').textContent;
+  const telefono = miConsultorio?.whatsapp || '';
+  const nombre = miConsultorio?.nombre || 'Mi consultorio';
   const body = encodeURIComponent(
     `🩺 *${nombre}* te comparte tu resumen de biorresonancia:\n\n` +
     document.getElementById('resultBody').innerText
@@ -105,34 +177,62 @@ document.getElementById('sendWhatsapp')?.addEventListener('click', () => {
   window.open(url, '_blank');
 });
 
-// --- Profile: subir logo ---
+// --- Profile: subir logo a Supabase Storage ---
 document.getElementById('uploadLogoBtn')?.addEventListener('click', () => {
   document.getElementById('logoInput').click();
 });
 
-document.getElementById('logoInput')?.addEventListener('change', (e) => {
-  if (e.target.files.length) {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const preview = document.getElementById('logoPreview');
-      preview.innerHTML = `<img src="${ev.target.result}" alt="Logo">`;
-      localStorage.setItem('qr_logo', ev.target.result);
-    };
-    reader.readAsDataURL(e.target.files[0]);
+document.getElementById('logoInput')?.addEventListener('change', async (e) => {
+  if (!e.target.files.length || !miConsultorio) return;
+
+  const logoFile = e.target.files[0];
+  const logoPath = `logos/${miConsultorio.id}/logo.${logoFile.name.split('.').pop()}`;
+
+  const { data, error } = await supabase.storage
+    .from('informes')
+    .upload(logoPath, logoFile, { upsert: true });
+
+  if (error) {
+    console.error('Error subiendo logo:', error);
+    alert('Error al subir el logo');
+    return;
   }
+
+  // Obtener URL pública
+  const { data: { publicUrl } } = supabase.storage
+    .from('informes')
+    .getPublicUrl(logoPath);
+
+  // Guardar URL en la base de datos
+  await supabase
+    .from('consultorios')
+    .update({ logo_url: publicUrl })
+    .eq('id', miConsultorio.id);
+
+  miConsultorio.logo_url = publicUrl;
+  document.getElementById('logoPreview').innerHTML = `<img src="${publicUrl}" alt="Logo">`;
 });
 
-// --- Profile: guardar ---
-document.getElementById('profileForm')?.addEventListener('submit', (e) => {
+// --- Profile: guardar en Supabase ---
+document.getElementById('profileForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!miConsultorio) return;
 
-  const name = document.getElementById('profileName').value;
+  const nombre = document.getElementById('profileName').value;
   const slogan = document.getElementById('profileSlogan').value;
   const whatsapp = document.getElementById('profileWhatsapp').value;
 
-  localStorage.setItem('qr_name', name);
-  localStorage.setItem('qr_slogan', slogan);
-  localStorage.setItem('qr_whatsapp', whatsapp);
+  const { error } = await supabase
+    .from('consultorios')
+    .update({ nombre, slogan, whatsapp })
+    .eq('id', miConsultorio.id);
+
+  if (error) {
+    alert('Error al guardar: ' + error.message);
+    return;
+  }
+
+  miConsultorio = { ...miConsultorio, nombre, slogan, whatsapp };
 
   const btn = e.target.querySelector('.btn--primary');
   const orig = btn.textContent;
@@ -143,3 +243,6 @@ document.getElementById('profileForm')?.addEventListener('submit', (e) => {
     btn.style.pointerEvents = '';
   }, 2000);
 });
+
+// --- Iniciar ---
+checkAuth();
